@@ -71,6 +71,11 @@ server:
   port: 8080
 ```
 
+Two things need to be explicitly enabled, or parts of the domain model silently don't work:
+
+- **Auditing** — `@CreatedDate` / `@LastModifiedDate` stay `null` unless a `@Configuration` class is annotated with `@EnableMongoAuditing`.
+- **Automatic index creation** — off by default in Spring Data MongoDB, so `@Indexed(unique = true)` on `Product.sku` does nothing until `spring.data.mongodb.auto-index-creation: true` is set.
+
 As of **Spring Boot 4.0**, the core MongoDB connection properties moved from the `spring.data.mongodb.*` namespace to `spring.mongodb.*`.
 
 ## Running MongoDB locally
@@ -113,6 +118,55 @@ Docker Compose reads `.env` automatically, but Spring Boot doesn't, so the same 
 
 **Gradle with the Groovy DSL over Maven or Kotlin DSL.**
 Mostly familiarity — Maven would've worked just as well.
+
+**Hybrid embedding + referencing for the Product/Order relationship.**
+Snapshotting name/price on the order keeps history accurate even if a product changes or gets discontinued, while the `productId` reference keeps a link back to the original.
+
+**Product status is an enum with a history, not a boolean.**
+Distinguishes "not yet available" from "no longer available," and costs nothing extra to track since Mongo has no schema to fight.
+
+**Stock count is kept separate from status, not folded into it.**
+Availability is computed from `stockQuantity` at read time so it can never drift out of sync with the real count.
+
+**SKU uses a plain unique index, not a partial one.**
+Products are soft-deleted, never removed, so a SKU never becomes free to reuse.
+
+**Order status has no history, unlike Product's.**
+An order is a one-time transaction, not a long-lived catalog item.
+
+**`totalAmount` is computed once at order creation.**
+Order items never change afterward, so there's nothing for a stored total to drift out of sync with.
+
+**Price uses `BigDecimal`, not `double`.**
+Avoids floating-point rounding errors on money.
 ---
 
+## Domain model
+
+### Product
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `String` | Mongo `ObjectId` |
+| `name` | `String` | |
+| `price` | `BigDecimal` | stored as `Decimal128` |
+| `sku` | `String` | unique |
+| `status` | enum: `DRAFT`, `ACTIVE`, `DISCONTINUED` | |
+| `statusHistory` | `List<StatusChange>` | embedded, `{ status, changedAt }` |
+| `stockQuantity` | `int` | |
+| `createdAt` / `updatedAt` | `Instant` | via Spring Data auditing |
+
+### Order
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `String` | |
+| `createdDate` | `Instant` | |
+| `status` | enum: `PLACED`, `COMPLETED`, `CANCELLED` | |
+| `totalAmount` | `BigDecimal` | computed once at creation |
+| `items` | `List<OrderItem>` | embedded, `{ productId, name, price, quantity }` |
+
+### Product ↔ Order relationship
+
+Conceptually many-to-many. Modeled as a **hybrid**: each `Order` embeds a snapshot of `name` and `price` for every product it contains, and also keeps a `productId` reference back to the canonical `Product`.
 *Sections coming next: domain model (`Product` / `Order`, and how the relationship between them is modeled in MongoDB), the `GET /api/orders/{orderId}/products` endpoint with its filtering/sorting/pagination design, and the test suite.*
