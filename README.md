@@ -139,6 +139,18 @@ Order items never change afterward, so there's nothing for a stored total to dri
 
 **Price uses `BigDecimal`, not `double`.**
 Avoids floating-point rounding errors on money.
+
+**Filtering/sorting/pagination run as a MongoDB aggregation pipeline, not in-memory Java.**
+Chosen over filtering in application code specifically because it exercises MongoDB's query engine, which is the point of this assignment.
+
+**Custom repository (`OrderRepositoryCustom` + `Impl`) handles the aggregation query.**
+Spring Data's standard pattern for queries it can't generate automatically — keeps Mongo-specific query code out of the service layer.
+
+**Filter operators as a Strategy pattern, auto-collected into a registry.**
+One small class per operator (`eq`, `neq`, `startsWith`, `contains`); adding a new one later means writing one class, nothing else changes.
+
+**A whitelist enum (`OrderItemField`) maps allowed field names to document paths.**
+Keeps raw client input from ever reaching the database as a literal query field.
 ---
 
 ## Domain model
@@ -170,3 +182,12 @@ Avoids floating-point rounding errors on money.
 
 Conceptually many-to-many. Modeled as a **hybrid**: each `Order` embeds a snapshot of `name` and `price` for every product it contains, and also keeps a `productId` reference back to the canonical `Product`.
 *Sections coming next: domain model (`Product` / `Order`, and how the relationship between them is modeled in MongoDB), the `GET /api/orders/{orderId}/products` endpoint with its filtering/sorting/pagination design, and the test suite.*
+
+
+## Query parameters (products endpoint)
+
+- `filter=field:operator:value` — comma-separated for multiple (e.g. `name:contains:mouse,price:eq:9.99`)
+- `sort=field:direction` — comma-separated, order sets sort priority (e.g. `price:desc,name:asc`)
+- `page`, `limit` — pagination
+
+Supported operators: `eq`, `neq`, `startsWith`, `contains`.
