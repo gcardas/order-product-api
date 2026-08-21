@@ -16,6 +16,6 @@ public class ContainsFilterOperator implements FilterOperator {
 
     @Override
     public Criteria toCriteria(String fieldPath, String value) {
-        return Criteria.where(fieldPath).regex(Pattern.quote(value));
+        return Criteria.where(fieldPath).regex(Pattern.quote(value), "i");
     }
 }
